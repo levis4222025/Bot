@@ -1,0 +1,13 @@
+python-telegram-bot
+telebot
+motor
+pydantic
+pytz
+pymongo
+python-dotenv
+APScheduler
+matplotlib
+pandas
+psutil
+aiohttp
+pyTelegramBotAPI

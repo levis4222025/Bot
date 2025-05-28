@@ -1,0 +1,12 @@
+version: '3'
+
+services:
+  bgmi-warrior-bot:
+    build: .
+    container_name: bgmi-warrior-bot
+    restart: unless-stopped
+    volumes:
+      - ./bot_logs:/app/bot_logs
+      - ./.env:/app/.env
+    environment:
+      - TZ=Asia/Kolkata
