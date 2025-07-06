@@ -1,3 +1,4 @@
+# Core bot dependencies - Latest Versions
 python-telegram-bot
 telebot
 motor
@@ -6,8 +7,45 @@ pytz
 pymongo
 python-dotenv
 APScheduler
+
+# Enhanced UI and graphics - Latest Versions
 matplotlib
 pandas
+pillow
+rich
+colorama
+
+# Performance monitoring - Latest Versions
 psutil
 aiohttp
+
+# Enhanced features - Latest Versions
 pyTelegramBotAPI
+redis
+numpy
+seaborn
+
+# Audio and media (for music player) - Latest Versions
+pygame
+mutagen
+
+# AI and translation features - Latest Versions
+googletrans
+langdetect
+requests
+beautifulsoup4
+
+# Additional utilities - Latest Versions
+asyncio
+datetime
+pathlib
+
+# Security and encryption
+cryptography>=40.0
+bcrypt>=4.0
+
+# Development and debugging
+black>=23.0
+flake8>=6.0
+pytest>=7.0
+pytest-asyncio>=0.21
